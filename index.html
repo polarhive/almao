@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Alarm System</title>
+    <script src="data/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .sensor-container { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .sensor-box { width: 30%; border: 1px solid #ccc; border-radius: 5px; padding: 10px; text-align: center; transition: border-color 0.3s; }
+        .sensor-box.threshold-exceeded { border-color: #ff3333; }
+        .sensor-value { font-size: 24px; font-weight: bold; margin: 10px 0; }
+        h1, h2 { color: #333; }
+        #log-container { max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
+        canvas { margin-bottom: 20px; }
+        .alarm-active { background-color: #ffeeee; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { background-color: #ffeeee; } 50% { background-color: #ffcccc; } 100% { background-color: #ffeeee; } }
+        .timer-container { margin: 20px auto; max-width: 500px; text-align: center; padding: 15px; border: 2px solid #ddd; border-radius: 8px; background: #f9f9f9; }
+        .timer-title { margin-top: 0; color: #444; }
+        .countdown { font-size: 60px; font-weight: bold; color: #333; margin: 15px 0; font-family: monospace; letter-spacing: 2px; }
+        .countdown.warning { color: #ff6600; }
+        .countdown.danger { color: #ff0000; animation: blink 1s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .alarm-status { padding: 10px; margin: 10px 0; border-radius: 5px; text-align: center; font-weight: bold; font-size: 18px; }
+        .status-inactive { background-color: #ccffcc; color: #006600; }
+        .status-active { background-color: #ffcccc; color: #990000; }
+        .status-waiting { background-color: #ffffcc; color: #666600; }
+        .timer-buttons, .threshold-inputs { display: flex; justify-content: center; gap: 15px; margin: 15px 0; }
+        .input-group { display: flex; flex-direction: column; align-items: center; }
+        .input-group label { font-size: 14px; margin-bottom: 5px; color: #666; }
+        .input-group input { width: 70px; padding: 8px; font-size: 16px; text-align: center; border: 1px solid #ddd; border-radius: 4px; }
+        .btn { padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 4px; transition: all 0.2s; }
+        .btn:hover { opacity: 0.9; }
+        .btn-start { background-color: #4CAF50; color: white; }
+        .btn-stop { background-color: #f44336; color: white; }
+        .hide { display: none; }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            background-color: #333;
+            color: white;
+            border-radius: 5px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        .notification.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .notification.error {
+            background-color: #d9534f;
+        }
+        .notification.success {
+            background-color: #5cb85c;
+        }
+        .notification.warning {
+            background-color: #f0ad4e;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Smart Alarm System</h1>
+
+    <div id="notification" class="notification"></div>
+    <div class="threshold-container">
+        <h2>Sensor Thresholds</h2>
+        <div class="threshold-inputs">
+            <div class="input-group">
+                <label for="distance-threshold">Distance &lt; (cm)</label>
+                <input type="number" id="distance-threshold" min="5" max="3000" value="150">
+            </div>
+            <div class="input-group">
+                <label for="sound-threshold">Sound &gt; (0-1023)</label>
+                <input type="number" id="sound-threshold" min="5" max="1023" step="1" value="9">
+            </div>
+            <div class="input-group">
+                <label for="touch-threshold">Touch &gt; (0-1023)</label>
+                <input type="number" id="touch-threshold" min="0" max="1023" value="200">
+            </div>
+        </div>
+    </div>
+
+    <div class="sensor-container">
+        <div id="distance-box" class="sensor-box">
+            <h3>Distance Sensor</h3>
+            <p>Current Distance (cm)</p>
+            <div id="distance-value" class="sensor-value">--</div>
+        </div>
+        <div id="sound-box" class="sensor-box">
+            <h3>Sound Sensor</h3>
+            <p>Current Level</p>
+            <div id="sound-value" class="sensor-value">--</div>
+        </div>
+        <div id="touch-box" class="sensor-box">
+            <h3>Touch Sensor</h3>
+            <p>Current Status</p>
+            <div id="touch-value" class="sensor-value">--</div>
+        </div>
+    </div>
+
+    <div id="alarm-status" class="alarm-status status-inactive">
+        Alarm Status: System Ready
+    </div>
+
+    <div class="timer-container">
+        <h2 class="timer-title">Alarm Timer</h2>
+        <div id="timer-setup" class="timer-buttons">
+            <div class="input-group">
+                <label for="hours">Hours</label>
+                <input type="number" id="hours" min="0" max="23" value="0">
+            </div>
+            <div class="input-group">
+                <label for="minutes">Minutes</label>
+                <input type="number" id="minutes" min="0" max="59" value="0">
+            </div>
+            <div class="input-group">
+                <label for="seconds">Seconds</label>
+                <input type="number" id="seconds" min="0" max="59" value="10">
+            </div>
+        </div>
+        <div id="timer-display" class="countdown hide">00:00:00</div>
+        <div class="timer-buttons">
+            <button id="start-timer" class="btn btn-start">Start Timer</button>
+            <button id="cancel-timer" class="btn btn-stop hide">Cancel Timer</button>
+        </div>
+        <div id="timer-info" class="timer-info">Set your alarm timer</div>
+    </div>
+
+    <div id="charts-container">
+        <h2>Distance Sensor History</h2>
+        <canvas id="distance-chart"></canvas>
+        <h2>Sound Level History</h2>
+        <canvas id="sound-chart"></canvas>
+        <h2>Touch Sensor History</h2>
+        <canvas id="touch-chart"></canvas>
+    </div>
+
+    <h2>System Logs</h2>
+    <div id="log-container"></div>
+
+    <audio id="alarm-sound" loop>
+        <source src="/data/sound.m4a" type="audio/mpeg">
+    </audio>
+
+    <script>
+        const distanceThresholdInput = document.getElementById('distance-threshold');
+        const soundThresholdInput = document.getElementById('sound-threshold');
+        const touchThresholdInput = document.getElementById('touch-threshold');
+        let distanceThreshold = parseFloat(distanceThresholdInput.value);
+        let soundThreshold = parseFloat(soundThresholdInput.value);
+        let touchThreshold = parseFloat(touchThresholdInput.value);
+
+        const distanceBox = document.getElementById('distance-box');
+        const soundBox = document.getElementById('sound-box');
+        const touchBox = document.getElementById('touch-box');
+        const alarmSound = document.getElementById('alarm-sound');
+        const alarmStatus = document.getElementById('alarm-status');
+        const startBtn = document.getElementById('start-timer');
+        const cancelBtn = document.getElementById('cancel-timer');
+        const notification = document.getElementById('notification');
+
+        function showNotification(message, type = 'info', duration = 3000) {
+            notification.textContent = message;
+            notification.className = 'notification ' + type;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, duration);
+        }
+
+        let timerTotalMs = 0, countdownInterval = null, targetTime = null;
+        let alarmActive = false, alarmTriggered = false;
+        const snoozeDuration = 30 * 1000; // 30s
+
+        const distanceChart = new Chart(
+            document.getElementById('distance-chart').getContext('2d'), {
+            type: 'line', data: { labels: [], datasets: [{ label: 'Distance (cm)', data: [], borderColor: 'rgb(75,192,192)', tension: 0.1 }] },
+            options: { responsive: true, scales: { y: { beginAtZero: true, suggestedMax: 500 } }, animation: { duration: 0 } }
+            }
+        );
+        const soundChart = new Chart(
+            document.getElementById('sound-chart').getContext('2d'), {
+            type: 'line', data: { labels: [], datasets: [{ label: 'Sound Level', data: [], borderColor: 'rgb(255,99,132)', tension: 0.1 }] },
+            options: { responsive: true, scales: { y: { beginAtZero: true, suggestedMax: 1 } }, animation: { duration: 0 } }
+            }
+        );
+        const touchChart = new Chart(
+            document.getElementById('touch-chart').getContext('2d'), {
+            type: 'line', data: { labels: [], datasets: [{ label: 'Touch Value', data: [], borderColor: 'rgb(255,159,64)', tension: 0.1 }] },
+            options: { responsive: true, scales: { y: { beginAtZero: true, suggestedMax: 1023 } }, animation: { duration: 0 } }
+            }
+        );
+
+        function updateChart(chart, value) {
+            const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+            chart.data.labels.push(now);
+            chart.data.datasets[0].data.push(value);
+            if (chart.data.labels.length > 30) {
+                chart.data.labels.shift(); chart.data.datasets[0].data.shift();
+            }
+            chart.update();
+        }
+
+        function handleSensorData(type, value) {
+            const v = parseFloat(value) || 0;
+            if (type === 'sensor') {
+                document.getElementById('distance-value').textContent = v.toFixed(1);
+                updateChart(distanceChart, v);
+                if (v < distanceThreshold) {
+                    distanceBox.classList.add('threshold-exceeded'); 
+                    if (alarmActive) {
+                        stopAlarm();
+                        addLog('Distance threshold triggered - alarm stopped');
+                    }
+                } else distanceBox.classList.remove('threshold-exceeded');
+            }
+            if (type === 'sound') {
+                document.getElementById('sound-value').textContent = v.toFixed(2);
+                updateChart(soundChart, v);
+                if (v > soundThreshold) {
+                    soundBox.classList.add('threshold-exceeded');
+                    if (alarmActive) {
+                        stopAlarm();
+                        addLog('Sound threshold triggered - alarm stopped');
+                    }
+                } else soundBox.classList.remove('threshold-exceeded');
+            }
+            if (type === 'touch') {
+                document.getElementById('touch-value').textContent = v;
+                updateChart(touchChart, v);
+                if (v > touchThreshold) {
+                    touchBox.classList.add('threshold-exceeded');
+                    if (alarmActive) {
+                        stopAlarm();
+                        addLog('Touch threshold triggered - alarm stopped');
+                    }
+                } else touchBox.classList.remove('threshold-exceeded');
+            }
+        }
+
+        function stopAlarm() {
+            stopAlarmSound();
+            alarmActive = false;
+            alarmTriggered = false;
+            document.body.classList.remove('alarm-active');
+            updateStatus('waiting');
+            document.getElementById('timer-setup').classList.remove('hide');
+            document.getElementById('timer-display').classList.add('hide');
+            startBtn.classList.remove('hide');
+            cancelBtn.classList.add('hide');
+        }
+
+        // Threshold input change listeners
+        [distanceThresholdInput, soundThresholdInput, touchThresholdInput].forEach(input =>
+            input.addEventListener('change', e => {
+                if (e.target === distanceThresholdInput) distanceThreshold = parseFloat(e.target.value);
+                if (e.target === soundThresholdInput) soundThreshold = parseFloat(e.target.value);
+                if (e.target === touchThresholdInput) touchThreshold = parseFloat(e.target.value);
+            })
+        );
+
+        function startTimer() {
+            const h = parseInt(document.getElementById('hours').value) || 0;
+            const m = parseInt(document.getElementById('minutes').value) || 0;
+            const s = parseInt(document.getElementById('seconds').value) || 0;
+            timerTotalMs = (h * 3600 + m * 60 + s) * 1000;
+            if (timerTotalMs <= 0) {
+                showNotification('Set a valid time > 0', 'error');
+                return;
+            }
+            targetTime = Date.now() + timerTotalMs;
+            document.getElementById('timer-setup').classList.add('hide');
+            document.getElementById('timer-display').classList.remove('hide');
+            startBtn.classList.add('hide'); cancelBtn.classList.remove('hide');
+            countdownInterval = setInterval(updateTimerDisplay, 1000);
+            updateStatus('waiting');
+        }
+        function cancelTimer() {
+            clearInterval(countdownInterval);
+            resetTimerUI();
+            updateStatus('inactive');
+            addLog('Timer cancelled');
+        }
+        function resetTimerUI() {
+            document.getElementById('timer-setup').classList.remove('hide');
+            document.getElementById('timer-display').classList.add('hide');
+            startBtn.classList.remove('hide'); cancelBtn.classList.add('hide');
+            document.getElementById('timer-display').classList.remove('warning', 'danger');
+        }
+        function updateTimerDisplay() {
+            const diff = targetTime - Date.now();
+            if (diff <= 0) { clearInterval(countdownInterval); triggerAlarm(); return; }
+            const hh = String(Math.floor(diff / 3600000)).padStart(2, '0');
+            const mm = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+            const ss = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+            const disp = document.getElementById('timer-display');
+            disp.textContent = `${hh}:${mm}:${ss}`;
+            disp.classList.toggle('warning', diff < 60000);
+            disp.classList.toggle('danger', diff < 10000);
+        }
+
+        function triggerAlarm(isSnooze = false) {
+            alarmActive = true; alarmTriggered = true;
+            document.body.classList.add('alarm-active');
+            updateStatus('active');
+            showNotification(isSnooze ? 'Snooze Over! Alarm!' : 'Timer Finished! Alarm!', 'warning', 10000);
+            playAlarmSound();
+            cancelBtn.classList.add('hide');
+            addLog(isSnooze ? 'Alarm re-triggered after snooze' : 'ALARM ACTIVATED');
+        }
+        function playAlarmSound() {
+            alarmSound.currentTime = 0; alarmSound.loop = true;
+            const p = alarmSound.play(); 
+            if (p) p.catch(() => showNotification('Audio blocked, click to enable', 'error'));
+        }
+        function stopAlarmSound() { alarmSound.pause(); alarmSound.currentTime = 0; }
+
+        function updateStatus(status) {
+            if (status === 'active') {
+                alarmStatus.textContent = 'Alarm Status: ACTIVE';
+                alarmStatus.className = 'alarm-status status-active';
+            } else if (status === 'waiting') {
+                alarmStatus.textContent = 'Alarm Status: Countdown in progress...';
+                alarmStatus.className = 'alarm-status status-waiting';
+            } else {
+                alarmStatus.textContent = 'Alarm Status: System Ready';
+                alarmStatus.className = 'alarm-status status-inactive';
+            }
+        }
+
+        function addLog(message) {
+            const lc = document.getElementById('log-container');
+            const entry = document.createElement('div');
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            lc.appendChild(entry); lc.scrollTop = lc.scrollHeight;
+            while (lc.childNodes.length > 100) lc.removeChild(lc.firstChild);
+        }
+
+        // WebSocket for real sensor data
+        const socket = new WebSocket(`ws://${window.location.host}/ws`);
+        socket.onopen = () => addLog('Connected to server');
+        socket.onclose = () => addLog('Disconnected from server');
+        socket.onerror = (e) => addLog(`WebSocket error: ${e}`);
+        socket.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+            handleSensorData(data.type, data.value);
+        };
+
+        // eventlisteners
+        startBtn.addEventListener('click', startTimer);
+        cancelBtn.addEventListener('click', cancelTimer);
+        document.addEventListener('keydown', function (event) {
+            if (event.code === 'Space' || event.keyCode === 32) {
+                event.preventDefault();
+                if (alarmActive) {
+                    stopAlarm();
+                    addLog('Alarm stopped via touch');
+                } else if (countdownInterval) {
+                    cancelTimer();
+                } else {
+                    startTimer();
+                }
+            }
+        });
+        addLog('Smart Alarm System initialized');
+    </script>
+</body>
+</html>
